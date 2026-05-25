@@ -67,7 +67,7 @@ class ScapulaSegWebUI:
             return None,"请上传有效的胸片图像！"
         
         image_bgr = cv2.cvtColor(image,cv2.COLOR_RGB2BGR)
-        self._engine._render.set_opacity(opacity)
+        self._engine.render.set_opacity(opacity)
 
         result = self._engine.run(image_bgr,return_overlay=True)
 

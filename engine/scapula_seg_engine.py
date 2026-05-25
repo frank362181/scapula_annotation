@@ -2,12 +2,13 @@
 """
 prediction engine： integration processing -> prediction model -> post processing -> visualization
 """
-from typing import Union, Dict
+from typing import Union, Dict, Optional
 
 import cv2
 import numpy as np
 
 from mmseg.apis import init_model, inference_model
+from mmseg.structures import SegDataSample
 
 from engine.chest_xray_postprocessor import ChestXrayPostprocessor
 from engine.chest_xray_preprocessor import ChestXrayPreprocessor
@@ -32,15 +33,18 @@ class ScapulaSegEngine:
         # classification mapping
         self._class_names = {0: "background", 1: "scapula"}
 
+    @property
+    def render(self) -> OverlayRenderer:
+        return self._render
 
-    def run(self,image: Union[str,np.ndarray],return_overlay: bool = True) -> Dict:
+    def run(self,image: Union[str,np.ndarray],return_overlay: Optional[bool] = True) -> Dict:
         """
         split a single image and return the result
-        :param image:
-            path of image or RGB numpy array
+        :
+            image: path of image or RGB numpy array
             return_overlay:
                 generate the overlay image or not
-        :return:
+        :
             - "original":original image
             - "mask": split mask(H,W)/ 0/1
             - "overlay":overlay the image(BGR) OR None
@@ -58,14 +62,27 @@ class ScapulaSegEngine:
         processed = self._preprocessor(original_image)
 
         #3 ---- prediction ----
+        # return value from mmsegmentation inference_model
         result = inference_model(self._model, processed)
 
-        # --- pick up predict mask(from SegDataSample)
-        pred_mask = result.pred_sem_seg.data.cpu().numpy()
-        pred_mask = pred_ask.squeeze(0)
+        # --- pick up predict mask(from SegDataSample)，single or multi
+        if isinstance(result, SegDataSample):
+            # process the single image
+            result_sample = result
+        elif hasattr(result,'__iter__') and not isinstance(result, (str,np.ndarray)):
+            # batch process
+            result_list = list(result)
+            if len(result_list) == 0:
+                raise RuntimeError(f"return the NONE from the predicted result!")
+            result_sample = result_list[0]
+        else:
+            try:
+                result_sample = SegDataSample.from_dict(result)
+            except Exception as e:
+                raise TypeError(f"can not get result from model:{result}!") from e
 
         # type 1 (scapula)
-        scapula_mask = (pred_mask == 1).astype(np.uint8)
+        scapula_mask = self._extract_mask(result_sample) #(pred_mask == 1).astype(np.uint8)
 
         # ---- 4 post processing
         filtered_mask = self._postprocessor(scapula_mask)
@@ -83,3 +100,28 @@ class ScapulaSegEngine:
             "overlay": overlay,
             "area_px": area_px,
         }
+
+    """ ================= private function & methods ================"""
+    def _extract_mask(self, result_sample: SegDataSample) -> np.ndarray:
+        pred_sem_seg = result_sample.pred_sem_seg
+        if pred_sem_seg is None:
+            raise ValueError(f"check the config: non-output from the model!")
+
+        # get tensor from data and convert it to numpy
+        pred_data = pred_sem_seg.data # shape
+        if isinstance(pred_data, np.ndarray):
+            pred_mask = pred_data
+        else:
+            pred_mask = pred_data.cpu().numpy()
+
+        # remove the batch dim,convert to (num_classes,H,W)
+        pred_mask = pred_mask.squeeze(0)
+
+        if pred_mask.ndim == 3:
+            scapula_mask = pred_mask[1]
+        else:
+            # (H,W) single channel ,check the value is 1 or not
+            scapula_mask = (pred_mask == 1).astype(np.uint8)
+
+        scapula_mask = (scapula_mask > 0.5).astype(np.uint8)
+        return scapula_mask

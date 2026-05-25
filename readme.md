@@ -1,16 +1,8 @@
 
 ## configs
-    -- 所有的配置信息
+    -- all the configuration for the project
 ## engine
-    -- 系统的核心封装，也是整个产品的核心部分
-
-
-## requirements.txt
-mmsegmentation>=1.2.2
-mmengine>=0.10.7
-mmcv>=2.2.0
-numpy>= 2.4.5
-opencv-python>=4.13.0.92
-torch>=2.12.0
-torchvision>=0.24.1
-gradio>=6.14.0
+    core of the project,including:
+    -- chest_xray_preprocessor.py: pre-process the chest image
+    -- chest_xray_postprocessor.py: post-process the chest image
+    -- overlay_renderer.py:
